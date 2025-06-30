@@ -2,6 +2,7 @@ package issue
 
 import (
 	"github.com/MakeNowJust/heredoc"
+	cmdAddSub "github.com/cli/cli/v2/pkg/cmd/issue/addsub"
 	cmdClose "github.com/cli/cli/v2/pkg/cmd/issue/close"
 	cmdComment "github.com/cli/cli/v2/pkg/cmd/issue/comment"
 	cmdCreate "github.com/cli/cli/v2/pkg/cmd/issue/create"
@@ -55,6 +56,7 @@ func NewCmdIssue(f *cmdutil.Factory) *cobra.Command {
 		cmdReopen.NewCmdReopen(f, nil),
 		cmdEdit.NewCmdEdit(f, nil),
 		cmdDevelop.NewCmdDevelop(f, nil),
+		cmdAddSub.NewCmdAddSub(f, nil),
 		cmdLock.NewCmdLock(f, cmd.Name(), nil),
 		cmdLock.NewCmdUnlock(f, cmd.Name(), nil),
 		cmdPin.NewCmdPin(f, nil),
