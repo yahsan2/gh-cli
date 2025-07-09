@@ -47,6 +47,7 @@ type Issue struct {
 	IsPinned         bool
 
 	ClosedByPullRequestsReferences ClosedByPullRequestsReferences
+	SubIssues                      SubIssues
 }
 
 type ClosedByPullRequestsReferences struct {
@@ -67,6 +68,22 @@ type ClosedByPullRequestsReferences struct {
 		HasNextPage bool
 		EndCursor   string
 	}
+}
+
+type SubIssues struct {
+	Nodes      []SubIssue
+	TotalCount int
+}
+
+type SubIssue struct {
+	ID        string
+	Number    int
+	Title     string
+	State     string
+	URL       string
+	Author    Author
+	Assignees Assignees
+	Labels    Labels
 }
 
 // return values for Issue.Typename

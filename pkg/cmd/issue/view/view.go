@@ -25,6 +25,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	stateClosed = "CLOSED"
+)
+
 type ViewOptions struct {
 	HttpClient func() (*http.Client, error)
 	IO         *iostreams.IOStreams
@@ -35,6 +39,7 @@ type ViewOptions struct {
 	IssueNumber int
 	WebMode     bool
 	Comments    bool
+	SubIssues   bool
 	Exporter    cmdutil.Exporter
 
 	Now func() time.Time
@@ -55,6 +60,8 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 			Display the title, body, and other information about an issue.
 
 			With %[1]s--web%[1]s flag, open the issue in a web browser instead.
+
+			With %[1]s--sub-issues%[1]s flag, view the list of sub-issues linked to this issue.
 		`, "`"),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -84,6 +91,7 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 
 	cmd.Flags().BoolVarP(&opts.WebMode, "web", "w", false, "Open an issue in the browser")
 	cmd.Flags().BoolVarP(&opts.Comments, "comments", "c", false, "View issue comments")
+	cmd.Flags().BoolVar(&opts.SubIssues, "sub-issues", false, "View sub-issues")
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, api.IssueFields)
 
 	return cmd
@@ -115,6 +123,9 @@ func viewRun(opts *ViewOptions) error {
 		if opts.Comments {
 			lookupFields.Add("comments")
 			lookupFields.Remove("lastComment")
+		}
+		if opts.SubIssues {
+			lookupFields.Add("subIssues")
 		}
 
 		// TODO projectsV1Deprecation
@@ -186,10 +197,16 @@ func viewRun(opts *ViewOptions) error {
 		return nil
 	}
 
-	return printRawIssuePreview(opts.IO.Out, issue)
+	if opts.SubIssues {
+		printRawSubIssues(opts.IO.Out, issue)
+		return nil
+	}
+
+	printRawIssuePreview(opts.IO.Out, issue)
+	return nil
 }
 
-func printRawIssuePreview(out io.Writer, issue *api.Issue) error {
+func printRawIssuePreview(out io.Writer, issue *api.Issue) {
 	assignees := issueAssigneeList(*issue)
 	labels := issueLabelList(issue, nil)
 	projects := issueProjectList(*issue)
@@ -211,7 +228,6 @@ func printRawIssuePreview(out io.Writer, issue *api.Issue) error {
 	fmt.Fprintf(out, "number:\t%d\n", issue.Number)
 	fmt.Fprintln(out, "--")
 	fmt.Fprintln(out, issue.Body)
-	return nil
 }
 
 func printHumanIssuePreview(opts *ViewOptions, baseRepo ghrepo.Interface, issue *api.Issue) error {
@@ -268,13 +284,22 @@ func printHumanIssuePreview(opts *ViewOptions, baseRepo ghrepo.Interface, issue 
 	fmt.Fprintf(out, "\n%s\n", md)
 
 	// Comments
-	if issue.Comments.TotalCount > 0 {
+	if issue.Comments.TotalCount > 0 && !opts.SubIssues {
 		preview := !opts.Comments
 		comments, err := prShared.CommentList(opts.IO, issue.Comments, api.PullRequestReviews{}, preview)
 		if err != nil {
 			return err
 		}
 		fmt.Fprint(out, comments)
+	}
+
+	// Sub-issues
+	if opts.SubIssues && issue.SubIssues.TotalCount > 0 {
+		fmt.Fprintf(out, "\n%s\n", cs.Bold(fmt.Sprintf("Sub-issues (%d)", issue.SubIssues.TotalCount)))
+		for _, subIssue := range issue.SubIssues.Nodes {
+			printSubIssue(out, cs, subIssue)
+		}
+		fmt.Fprintln(out)
 	}
 
 	// Footer
@@ -286,7 +311,7 @@ func printHumanIssuePreview(opts *ViewOptions, baseRepo ghrepo.Interface, issue 
 func issueStateTitleWithColor(cs *iostreams.ColorScheme, issue *api.Issue) string {
 	colorFunc := cs.ColorFromString(prShared.ColorForIssueState(*issue))
 	state := "Open"
-	if issue.State == "CLOSED" {
+	if issue.State == stateClosed {
 		state = "Closed"
 	}
 	return colorFunc(state)
@@ -350,4 +375,68 @@ func issueLabelList(issue *api.Issue, cs *iostreams.ColorScheme) string {
 	}
 
 	return strings.Join(labelNames, ", ")
+}
+
+func printSubIssue(out io.Writer, cs *iostreams.ColorScheme, subIssue api.SubIssue) {
+	stateIcon := "•"
+	stateColor := cs.ColorFromString("green")
+	if subIssue.State == stateClosed {
+		stateIcon = "✓"
+		stateColor = cs.ColorFromString("purple")
+	}
+
+	fmt.Fprintf(out, "\n  %s #%d %s", stateColor(stateIcon), subIssue.Number, subIssue.Title)
+	
+	// Show assignees
+	if len(subIssue.Assignees.Nodes) > 0 {
+		assignees := make([]string, len(subIssue.Assignees.Nodes))
+		for i, a := range subIssue.Assignees.Nodes {
+			assignees[i] = "@" + a.Login
+		}
+		fmt.Fprintf(out, " %s", cs.Muted("("+strings.Join(assignees, ", ")+")"))
+	}
+	
+	// Show labels
+	if len(subIssue.Labels.Nodes) > 0 {
+		fmt.Fprint(out, " ")
+		for i, label := range subIssue.Labels.Nodes {
+			if i > 0 {
+				fmt.Fprint(out, " ")
+			}
+			fmt.Fprint(out, cs.Label(label.Color, label.Name))
+		}
+	}
+	
+	fmt.Fprintln(out)
+}
+
+func printRawSubIssues(out io.Writer, issue *api.Issue) {
+	if issue.SubIssues.TotalCount == 0 {
+		return
+	}
+
+	for _, subIssue := range issue.SubIssues.Nodes {
+		state := "open"
+		if subIssue.State == stateClosed {
+			state = "closed"
+		}
+		
+		assignees := make([]string, len(subIssue.Assignees.Nodes))
+		for i, a := range subIssue.Assignees.Nodes {
+			assignees[i] = a.Login
+		}
+		
+		labels := make([]string, len(subIssue.Labels.Nodes))
+		for i, l := range subIssue.Labels.Nodes {
+			labels[i] = l.Name
+		}
+		
+		fmt.Fprintf(out, "#%d\t%s\t%s\t%s\t%s\t%s\n",
+			subIssue.Number,
+			state,
+			subIssue.Title,
+			subIssue.Author.Login,
+			strings.Join(assignees, ","),
+			strings.Join(labels, ","))
+	}
 }

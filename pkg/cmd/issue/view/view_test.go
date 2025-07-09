@@ -47,6 +47,7 @@ func TestJSONFields(t *testing.T) {
 		"url",
 		"isPinned",
 		"stateReason",
+		"subIssues",
 	})
 }
 
@@ -560,4 +561,74 @@ func TestProjectsV1Deprecation(t *testing.T) {
 		// Verify that our request contained projectCards
 		reg.Verify(t)
 	})
+}
+
+func TestIssueView_tty_SubIssues(t *testing.T) {
+	t.Run("with sub-issues flag", func(t *testing.T) {
+		http := &httpmock.Registry{}
+		defer http.Verify(t)
+
+		http.Register(httpmock.GraphQL(`query IssueByNumber\b`), httpmock.FileResponse("./fixtures/issueView_withSubIssues.json"))
+
+		output, err := runCommand(http, true, "123 --sub-issues")
+		assert.NoError(t, err)
+		assert.Equal(t, "", output.Stderr())
+		assert.Contains(t, output.String(), "Sub-issues (3)")
+	})
+
+	t.Run("with sub-issues flag but no sub-issues", func(t *testing.T) {
+		http := &httpmock.Registry{}
+		defer http.Verify(t)
+
+		http.Register(httpmock.GraphQL(`query IssueByNumber\b`), httpmock.FileResponse("./fixtures/issueView_preview.json"))
+
+		output, err := runCommand(http, true, "123 --sub-issues")
+		assert.NoError(t, err)
+		assert.Equal(t, "", output.Stderr())
+		assert.NotContains(t, output.String(), "Sub-issues")
+	})
+}
+
+func TestIssueView_nontty_SubIssues(t *testing.T) {
+	tests := map[string]struct {
+		cli             string
+		fixture         string
+		expectedOutputs []string
+		wantsErr        bool
+	}{
+		"with sub-issues flag": {
+			cli:     "123 --sub-issues",
+			fixture: "./fixtures/issueView_withSubIssues.json",
+			expectedOutputs: []string{
+				`#456	open	Sub-task for feature A	alice	alice	bug,enhancement`,
+				`#789	closed	Sub-task for feature B	bob	bob,charlie	done`,
+				`#1012	open	Sub-task for feature C	dave		`,
+			},
+		},
+		"with sub-issues flag but no sub-issues": {
+			cli:             "123 --sub-issues",
+			fixture:         "./fixtures/issueView_preview.json",
+			expectedOutputs: []string{},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			http := &httpmock.Registry{}
+			defer http.Verify(t)
+
+			http.Register(httpmock.GraphQL(`query IssueByNumber\b`), httpmock.FileResponse(tc.fixture))
+
+			output, err := runCommand(http, false, tc.cli)
+			if tc.wantsErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+
+			assert.Equal(t, "", output.Stderr())
+
+			//nolint:staticcheck // prefer exact matchers over ExpectLines
+			test.ExpectLines(t, output.String(), tc.expectedOutputs...)
+		})
+	}
 }

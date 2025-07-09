@@ -1,0 +1,123 @@
+{
+  "data": {
+    "repository": {
+      "hasIssuesEnabled": true,
+      "issue": {
+        "number": 123,
+        "body": "**bold story**",
+        "title": "ix of coins",
+        "state": "OPEN",
+        "createdAt": "2011-01-26T19:01:12Z",
+        "author": {
+          "login": "marseilles"
+        },
+        "assignees": {
+          "nodes": [],
+          "totalCount": 0
+        },
+        "labels": {
+          "nodes": [],
+          "totalCount": 0
+        },
+        "projectcards": {
+          "nodes": [],
+          "totalCount": 0
+        },
+        "milestone": {
+          "title": ""
+        },
+        "comments": {
+          "totalCount": 9
+        },
+        "url": "https://github.com/OWNER/REPO/issues/123",
+        "subIssues": {
+          "totalCount": 3,
+          "nodes": [
+            {
+              "id": "ISS_456",
+              "number": 456,
+              "title": "Sub-task for feature A",
+              "state": "OPEN",
+              "url": "https://github.com/OWNER/REPO/issues/456",
+              "author": {
+                "login": "alice"
+              },
+              "assignees": {
+                "nodes": [
+                  {
+                    "id": "U_alice",
+                    "login": "alice",
+                    "name": "Alice Smith"
+                  }
+                ]
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "id": "L_bug",
+                    "name": "bug",
+                    "color": "d73a4a"
+                  },
+                  {
+                    "id": "L_enhancement",
+                    "name": "enhancement",
+                    "color": "a2eeef"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ISS_789",
+              "number": 789,
+              "title": "Sub-task for feature B",
+              "state": "CLOSED",
+              "url": "https://github.com/OWNER/REPO/issues/789",
+              "author": {
+                "login": "bob"
+              },
+              "assignees": {
+                "nodes": [
+                  {
+                    "id": "U_bob",
+                    "login": "bob",
+                    "name": "Bob Johnson"
+                  },
+                  {
+                    "id": "U_charlie",
+                    "login": "charlie",
+                    "name": "Charlie Brown"
+                  }
+                ]
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "id": "L_done",
+                    "name": "done",
+                    "color": "0e8a16"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ISS_1012",
+              "number": 1012,
+              "title": "Sub-task for feature C",
+              "state": "OPEN",
+              "url": "https://github.com/OWNER/REPO/issues/1012",
+              "author": {
+                "login": "dave"
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "labels": {
+                "nodes": []
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

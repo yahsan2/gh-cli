@@ -19,6 +19,8 @@ func (issue *Issue) ExportData(fields []string) map[string]interface{} {
 			data[f] = issue.Labels.Nodes
 		case "projectCards":
 			data[f] = issue.ProjectCards.Nodes
+		case "subIssues":
+			data[f] = issue.SubIssues.Nodes
 		case "projectItems":
 			items := make([]map[string]interface{}, 0, len(issue.ProjectItems.Nodes))
 			for _, n := range issue.ProjectItems.Nodes {

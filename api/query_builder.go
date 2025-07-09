@@ -94,6 +94,22 @@ var issueClosedByPullRequestsReferences = shortenQuery(`
 	}
 `)
 
+var issueSubIssues = shortenQuery(`
+	subIssues(first: 100) {
+		nodes {
+			id,
+			number,
+			title,
+			state,
+			url,
+			author{login,...on User{id,name}},
+			assignees(first:10){nodes{id,login,name}},
+			labels(first:10){nodes{id,name,color}}
+		},
+		totalCount
+	}
+`)
+
 var prReviewRequests = shortenQuery(`
 	reviewRequests(first: 100) {
 		nodes {
@@ -335,6 +351,7 @@ var issueOnlyFields = []string{
 	"isPinned",
 	"stateReason",
 	"closedByPullRequestsReferences",
+	"subIssues",
 }
 
 var IssueFields = append(sharedIssuePRFields, issueOnlyFields...)
@@ -431,6 +448,8 @@ func IssueGraphQL(fields []string) string {
 			q = append(q, prClosingIssuesReferences)
 		case "closedByPullRequestsReferences":
 			q = append(q, issueClosedByPullRequestsReferences)
+		case "subIssues":
+			q = append(q, issueSubIssues)
 		default:
 			q = append(q, field)
 		}
