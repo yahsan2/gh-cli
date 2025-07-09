@@ -365,20 +365,20 @@ func createRun(opts *CreateOptions) (err error) {
 			if err != nil {
 				return fmt.Errorf("invalid parent issue: %w", err)
 			}
-			
+
 			// Use the parent repo if specified, otherwise use the base repo
 			if parentRepo.IsSome() {
 				if !ghrepo.IsSame(baseRepo, parentRepo.Unwrap()) {
 					return fmt.Errorf("parent issue must be in the same repository")
 				}
 			}
-			
+
 			// Get parent issue ID
 			parentIssueID, err := getParentIssueID(httpClient, baseRepo, parentIssueNumber)
 			if err != nil {
 				return fmt.Errorf("failed to get parent issue ID: %w", err)
 			}
-			
+
 			params["parentIssueId"] = parentIssueID
 		}
 

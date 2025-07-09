@@ -71,7 +71,7 @@ func TestNewCmdAddSub(t *testing.T) {
 
 func TestAddSubRun_SameIssue(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	
+
 	opts := &AddSubOptions{
 		IO:             ios,
 		ParentIssueArg: "123",

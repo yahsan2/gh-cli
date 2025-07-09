@@ -1156,11 +1156,11 @@ func TestIssueCreate_projectsV2(t *testing.T) {
 
 func TestGetParentIssueID(t *testing.T) {
 	tests := []struct {
-		name           string
-		issueNumber    int
-		httpStubs      func(*httpmock.Registry)
-		wantsID        string
-		wantsErr       string
+		name        string
+		issueNumber int
+		httpStubs   func(*httpmock.Registry)
+		wantsID     string
+		wantsErr    string
 	}{
 		{
 			name:        "valid issue",

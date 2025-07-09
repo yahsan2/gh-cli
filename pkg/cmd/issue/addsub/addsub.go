@@ -52,7 +52,7 @@ func NewCmdAddSub(f *cmdutil.Factory, runF func(*AddSubOptions) error) *cobra.Co
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// support `-R, --repo` override
 			opts.BaseRepo = f.BaseRepo
-			
+
 			opts.ParentIssueArg = args[0]
 			opts.SubIssueArg = args[1]
 
