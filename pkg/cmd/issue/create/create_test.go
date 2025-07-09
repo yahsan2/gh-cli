@@ -198,6 +198,48 @@ func TestNewCmdCreate(t *testing.T) {
 			cli:      "--editor",
 			wantsErr: true,
 		},
+		{
+			name:     "parent flag",
+			tty:      false,
+			cli:      `-t mytitle -b "issue body" --parent 123`,
+			wantsErr: false,
+			wantsOpts: CreateOptions{
+				Title:       "mytitle",
+				Body:        "issue body",
+				Parent:      "123",
+				RecoverFile: "",
+				WebMode:     false,
+				Interactive: false,
+			},
+		},
+		{
+			name:     "parent flag with URL",
+			tty:      false,
+			cli:      `-t mytitle -b "issue body" --parent https://github.com/owner/repo/issues/456`,
+			wantsErr: false,
+			wantsOpts: CreateOptions{
+				Title:       "mytitle",
+				Body:        "issue body",
+				Parent:      "https://github.com/owner/repo/issues/456",
+				RecoverFile: "",
+				WebMode:     false,
+				Interactive: false,
+			},
+		},
+		{
+			name:     "parent flag short form",
+			tty:      false,
+			cli:      `-t mytitle -b "issue body" -P 789`,
+			wantsErr: false,
+			wantsOpts: CreateOptions{
+				Title:       "mytitle",
+				Body:        "issue body",
+				Parent:      "789",
+				RecoverFile: "",
+				WebMode:     false,
+				Interactive: false,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -247,6 +289,7 @@ func TestNewCmdCreate(t *testing.T) {
 			assert.Equal(t, tt.wantsOpts.WebMode, opts.WebMode)
 			assert.Equal(t, tt.wantsOpts.Interactive, opts.Interactive)
 			assert.Equal(t, tt.wantsOpts.Template, opts.Template)
+			assert.Equal(t, tt.wantsOpts.Parent, opts.Parent)
 		})
 	}
 }
@@ -455,6 +498,44 @@ func Test_createRun(t *testing.T) {
 			wantsStdout: "https://github.com/OWNER/REPO/issues/12\n",
 			wantsStderr: "\nCreating issue in OWNER/REPO\n\n",
 		},
+		{
+			name: "with parent issue",
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query RepositoryInfo\b`),
+					httpmock.StringResponse(`
+			{ "data": { "repository": {
+				"id": "REPOID",
+				"hasIssuesEnabled": true
+			} } }`))
+				r.Register(
+					httpmock.GraphQL(`query.*owner.*repo.*number`),
+					httpmock.StringResponse(`
+			{ "data": { "repository": {
+				"issueOrPullRequest": {
+					"id": "PARENTID"
+				}
+			} } }`))
+				r.Register(
+					httpmock.GraphQL(`mutation IssueCreate\b`),
+					httpmock.GraphQLMutation(`
+		{ "data": { "createIssue": { "issue": {
+			"URL": "https://github.com/OWNER/REPO/issues/12"
+		} } } }
+	`, func(inputs map[string]interface{}) {
+						assert.Equal(t, "title", inputs["title"])
+						assert.Equal(t, "body", inputs["body"])
+						assert.Equal(t, "PARENTID", inputs["parentIssueId"])
+					}))
+			},
+			opts: CreateOptions{
+				Title:  "title",
+				Body:   "body",
+				Parent: "123",
+			},
+			wantsStdout: "https://github.com/OWNER/REPO/issues/12\n",
+			wantsStderr: "\nCreating issue in OWNER/REPO\n\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -571,6 +652,49 @@ func TestIssueCreate(t *testing.T) {
 	)
 
 	output, err := runCommand(http, true, `-t hello -b "cash rules everything around me"`, nil)
+	if err != nil {
+		t.Errorf("error running command `issue create`: %v", err)
+	}
+
+	assert.Equal(t, "https://github.com/OWNER/REPO/issues/12\n", output.String())
+}
+
+func TestIssueCreate_withParent(t *testing.T) {
+	http := &httpmock.Registry{}
+	defer http.Verify(t)
+
+	http.Register(
+		httpmock.GraphQL(`query RepositoryInfo\b`),
+		httpmock.StringResponse(`
+			{ "data": { "repository": {
+				"id": "REPOID",
+				"hasIssuesEnabled": true
+			} } }`),
+	)
+	http.Register(
+		httpmock.GraphQL(`query.*owner.*repo.*number`),
+		httpmock.StringResponse(`
+			{ "data": { "repository": {
+				"issueOrPullRequest": {
+					"id": "PARENTID"
+				}
+			} } }`),
+	)
+	http.Register(
+		httpmock.GraphQL(`mutation IssueCreate\b`),
+		httpmock.GraphQLMutation(`
+				{ "data": { "createIssue": { "issue": {
+					"URL": "https://github.com/OWNER/REPO/issues/12"
+				} } } }`,
+			func(inputs map[string]interface{}) {
+				assert.Equal(t, inputs["repositoryId"], "REPOID")
+				assert.Equal(t, inputs["title"], "hello")
+				assert.Equal(t, inputs["body"], "child issue")
+				assert.Equal(t, inputs["parentIssueId"], "PARENTID")
+			}),
+	)
+
+	output, err := runCommand(http, true, `-t hello -b "child issue" --parent 123`, nil)
 	if err != nil {
 		t.Errorf("error running command `issue create`: %v", err)
 	}
@@ -1028,6 +1152,149 @@ func TestIssueCreate_projectsV2(t *testing.T) {
 	}
 
 	assert.Equal(t, "https://github.com/OWNER/REPO/issues/12\n", output.String())
+}
+
+func TestGetParentIssueID(t *testing.T) {
+	tests := []struct {
+		name           string
+		issueNumber    int
+		httpStubs      func(*httpmock.Registry)
+		wantsID        string
+		wantsErr       string
+	}{
+		{
+			name:        "valid issue",
+			issueNumber: 123,
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query.*owner.*repo.*number`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"issueOrPullRequest": {
+							"id": "PARENTID"
+						}
+					} } }`))
+			},
+			wantsID: "PARENTID",
+		},
+		{
+			name:        "issue not found",
+			issueNumber: 999,
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query.*owner.*repo.*number`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"issueOrPullRequest": null
+					} } }`))
+			},
+			wantsErr: "issue #999 not found",
+		},
+		{
+			name:        "graphql error",
+			issueNumber: 456,
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query.*owner.*repo.*number`),
+					httpmock.StatusStringResponse(500, `{"errors": [{"message": "Server error"}]}`))
+			},
+			wantsErr: "HTTP 500",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpReg := &httpmock.Registry{}
+			defer httpReg.Verify(t)
+			tt.httpStubs(httpReg)
+
+			client := &http.Client{Transport: httpReg}
+			repo := ghrepo.New("OWNER", "REPO")
+
+			id, err := getParentIssueID(client, repo, tt.issueNumber)
+
+			if tt.wantsErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantsErr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantsID, id)
+			}
+		})
+	}
+}
+
+func TestIssueCreate_parentErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		parent    string
+		httpStubs func(*httpmock.Registry)
+		wantsErr  string
+	}{
+		{
+			name:   "invalid parent format",
+			parent: "invalid",
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query RepositoryInfo\b`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"id": "REPOID",
+						"hasIssuesEnabled": true
+					} } }`))
+			},
+			wantsErr: "invalid parent issue",
+		},
+		{
+			name:   "parent issue not found",
+			parent: "999",
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query RepositoryInfo\b`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"id": "REPOID",
+						"hasIssuesEnabled": true
+					} } }`))
+				r.Register(
+					httpmock.GraphQL(`query.*owner.*repo.*number`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"issueOrPullRequest": null
+					} } }`))
+			},
+			wantsErr: "issue #999 not found",
+		},
+		{
+			name:   "parent issue different repo",
+			parent: "https://github.com/other/repo/issues/123",
+			httpStubs: func(r *httpmock.Registry) {
+				r.Register(
+					httpmock.GraphQL(`query RepositoryInfo\b`),
+					httpmock.StringResponse(`
+					{ "data": { "repository": {
+						"id": "REPOID",
+						"hasIssuesEnabled": true
+					} } }`))
+			},
+			wantsErr: "parent issue must be in the same repository",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			http := &httpmock.Registry{}
+			defer http.Verify(t)
+			if tt.httpStubs != nil {
+				tt.httpStubs(http)
+			}
+
+			output, err := runCommand(http, true, fmt.Sprintf(`-t title -b body --parent %s`, tt.parent), nil)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantsErr)
+			assert.Equal(t, "", output.String())
+		})
+	}
 }
 
 // TODO projectsV1Deprecation

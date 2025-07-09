@@ -13,6 +13,7 @@ import (
 	"github.com/cli/cli/v2/internal/gh"
 	"github.com/cli/cli/v2/internal/ghrepo"
 	"github.com/cli/cli/v2/internal/text"
+	"github.com/cli/cli/v2/pkg/cmd/issue/shared"
 	prShared "github.com/cli/cli/v2/pkg/cmd/pr/shared"
 	"github.com/cli/cli/v2/pkg/cmdutil"
 	"github.com/cli/cli/v2/pkg/iostreams"
@@ -45,6 +46,7 @@ type CreateOptions struct {
 	Projects  []string
 	Milestone string
 	Template  string
+	Parent    string
 }
 
 func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Command {
@@ -77,6 +79,8 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 			$ gh issue create --assignee "@me"
 			$ gh issue create --project "Roadmap"
 			$ gh issue create --template "Bug Report"
+			$ gh issue create --parent 123 --title "Fix specific bug"
+			$ gh issue create --parent https://github.com/owner/repo/issues/123 --title "Sub-task"
 		`),
 		Args:    cmdutil.NoArgsQuoteReminder,
 		Aliases: []string{"new"},
@@ -134,6 +138,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	cmd.Flags().StringVarP(&opts.Milestone, "milestone", "m", "", "Add the issue to a milestone by `name`")
 	cmd.Flags().StringVar(&opts.RecoverFile, "recover", "", "Recover input from a failed run of create")
 	cmd.Flags().StringVarP(&opts.Template, "template", "T", "", "Template `name` to use as starting body text")
+	cmd.Flags().StringVarP(&opts.Parent, "parent", "P", "", "Set parent issue by `number` or URL")
 
 	return cmd
 }
@@ -353,6 +358,30 @@ func createRun(opts *CreateOptions) (err error) {
 			return
 		}
 
+		// Add parent issue ID if provided
+		if opts.Parent != "" {
+			// Parse parent issue number/URL
+			parentIssueNumber, parentRepo, err := shared.ParseIssueFromArg(opts.Parent)
+			if err != nil {
+				return fmt.Errorf("invalid parent issue: %w", err)
+			}
+			
+			// Use the parent repo if specified, otherwise use the base repo
+			if parentRepo.IsSome() {
+				if !ghrepo.IsSame(baseRepo, parentRepo.Unwrap()) {
+					return fmt.Errorf("parent issue must be in the same repository")
+				}
+			}
+			
+			// Get parent issue ID
+			parentIssueID, err := getParentIssueID(httpClient, baseRepo, parentIssueNumber)
+			if err != nil {
+				return fmt.Errorf("failed to get parent issue ID: %w", err)
+			}
+			
+			params["parentIssueId"] = parentIssueID
+		}
+
 		var newIssue *api.Issue
 		newIssue, err = api.IssueCreate(apiClient, repo, params)
 		if err != nil {
@@ -365,6 +394,46 @@ func createRun(opts *CreateOptions) (err error) {
 	}
 
 	return
+}
+
+func getParentIssueID(httpClient *http.Client, repo ghrepo.Interface, issueNumber int) (string, error) {
+	query := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issueOrPullRequest(number: $number) {
+					... on Issue {
+						id
+					}
+				}
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"owner":  repo.RepoOwner(),
+		"repo":   repo.RepoName(),
+		"number": issueNumber,
+	}
+
+	var response struct {
+		Repository struct {
+			IssueOrPullRequest struct {
+				ID string `json:"id"`
+			} `json:"issueOrPullRequest"`
+		} `json:"repository"`
+	}
+
+	client := api.NewClientFromHTTP(httpClient)
+	err := client.GraphQL(repo.RepoHost(), query, variables, &response)
+	if err != nil {
+		return "", err
+	}
+
+	if response.Repository.IssueOrPullRequest.ID == "" {
+		return "", fmt.Errorf("issue #%d not found", issueNumber)
+	}
+
+	return response.Repository.IssueOrPullRequest.ID, nil
 }
 
 func generatePreviewURL(apiClient *api.Client, baseRepo ghrepo.Interface, tb prShared.IssueMetadataState, projectsV1Support gh.ProjectsV1Support) (string, error) {
